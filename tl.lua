@@ -1480,14 +1480,19 @@ end
 
 local function parse_table_value(ps, i)
    local next_word = ps.tokens[i].tk
-   local e
    if next_word == "record" then
-      i = failskip(ps, i, "syntax error: this syntax is no longer valid; declare nested record inside a record", skip_record)
-   elseif next_word == "enum" then
+      local skip_i, e = skip(ps, i, skip_record)
+      if e then
+         fail(ps, i, "syntax error: this syntax is no longer valid; declare nested record inside a record")
+         return skip_i, new_node(ps.tokens, i, "error_node")
+      end
+   elseif next_word == "enum" and ps.tokens[i + 1].kind == "string" then
       i = failskip(ps, i, "syntax error: this syntax is no longer valid; declare nested enum inside a record", skip_enum)
-   else
-      i, e = parse_expression(ps, i)
+      return i, new_node(ps.tokens, i - 1, "error_node")
    end
+
+   local e
+   i, e = parse_expression(ps, i)
    if not e then
       e = new_node(ps.tokens, i - 1, "error_node")
    end
@@ -2324,6 +2329,12 @@ parse_argument_list = function(ps, i)
    return i, node
 end
 
+
+
+
+
+
+
 local function parse_argument_type(ps, i)
    local is_va = false
    local argument_name = nil
@@ -2345,32 +2356,28 @@ local function parse_argument_type(ps, i)
          i = i + 1
          is_va = true
       end
-
-      typ.is_va = is_va
    end
 
    if argument_name == "self" then
       typ.is_self = true
    end
 
-   return i, typ, 0
+   return i, { i = i, type = typ, is_va = is_va }, 0
 end
 
 parse_argument_type_list = function(ps, i)
+   local tvs = {}
+   i = parse_bracket_list(ps, i, tvs, "(", ")", "sep", parse_argument_type)
    local list = new_type(ps, i, "tuple")
-   i = parse_bracket_list(ps, i, list, "(", ")", "sep", parse_argument_type)
-
-   if list[#list] then
-      for l = 1, #list - 1 do
-         if list[l].is_va then
-            list[l].is_va = nil
-            fail(ps, i, "'...' can only be last argument")
-         end
+   local n = #tvs
+   for l, tv in ipairs(tvs) do
+      list[l] = tv.type
+      if tv.is_va and l < n then
+         fail(ps, tv.i, "'...' can only be last argument")
       end
-      if list[#list].is_va then
-         list[#list].is_va = nil
-         list.is_va = true
-      end
+   end
+   if tvs[n] and tvs[n].is_va then
+      list.is_va = true
    end
    return i, list
 end
@@ -3020,7 +3027,7 @@ local function parse_type_constructor(ps, i, node_name, type_name, parse_body)
 end
 
 local function skip_type_declaration(ps, i)
-   return (parse_type_declaration(ps, i - 1, "local_type"))
+   return parse_type_declaration(ps, i - 1, "local_type")
 end
 
 local function parse_local(ps, i)
@@ -4872,6 +4879,7 @@ end
 
 
 
+
 local function sorted_keys(m)
    local keys = {}
    for k, _ in pairs(m) do
@@ -6084,7 +6092,7 @@ tl.type_check = function(ast, opts)
    local function unused_warning(name, var)
       local prefix = name:sub(1, 1)
       if var.declared_at and
-         not (var.is_narrowed == "is") and
+         var.is_narrowed ~= "narrow" and
          prefix ~= "_" and
          prefix ~= "@" then
 
@@ -6381,7 +6389,7 @@ tl.type_check = function(ast, opts)
 
 
 
-   local function check_for_unused_vars(vars)
+   local function check_for_unused_vars(vars, is_global)
       if not next(vars) then
          return
       end
@@ -6391,6 +6399,9 @@ tl.type_check = function(ast, opts)
             if var.used_as_type then
                var.declared_at.elide_type = true
             else
+               if is_typetype(var.t) and not is_global then
+                  var.declared_at.elide_type = true
+               end
                table.insert(list, { y = var.declared_at.y, x = var.declared_at.x, name = name, var = var })
             end
          elseif var.used and is_typetype(var.t) and var.aliasing then
@@ -7459,9 +7470,12 @@ tl.type_check = function(ast, opts)
                   local f = is_func and func or func.types[i]
                   if f.is_method and not is_method then
                      if args[1] and is_a(args[1], f.args[1]) then
-                        local receiver_is_typetype = where.e1.e1 and where.e1.e1.type and where.e1.e1.type.resolved and where.e1.e1.type.resolved.typename == "typetype"
-                        if not receiver_is_typetype then
-                           node_warning("hint", where, "invoked method as a regular function: consider using ':' instead of '.'")
+
+                        if where.kind == "op" and where.op.op == "@funcall" then
+                           local receiver_is_typetype = where.e1.e1 and where.e1.e1.type and where.e1.e1.type.resolved and where.e1.e1.type.resolved.typename == "typetype"
+                           if not receiver_is_typetype then
+                              node_warning("hint", where, "invoked method as a regular function: consider using ':' instead of '.'")
+                           end
                         end
                      else
                         return node_error(where, "invoked method as a regular function: use ':' instead of '.'")
@@ -7566,7 +7580,8 @@ tl.type_check = function(ast, opts)
 
    local function widen_in_scope(scope, var)
       assert(scope[var], "no " .. var .. " in scope")
-      if scope[var].is_narrowed then
+      local narrow_mode = scope[var].is_narrowed
+      if narrow_mode and narrow_mode ~= "declaration" then
          if scope[var].narrowed_from then
             scope[var].t = scope[var].narrowed_from
             scope[var].narrowed_from = nil
@@ -8346,7 +8361,7 @@ tl.type_check = function(ast, opts)
             if not f.where then
                t.inferred_at = nil
             end
-            add_var(nil, v, t, "const", "is")
+            add_var(nil, v, t, "const", "narrow")
          end
       end
    end
@@ -8972,7 +8987,7 @@ tl.type_check = function(ast, opts)
 
                   local rt = resolve_tuple_and_nominal(t)
                   if rt.typename ~= "enum" and not same_type(t, infertype) then
-                     add_var(where, var.tk, infer_at(where, infertype), "const", "declaration")
+                     add_var(where, var.tk, infer_at(where, infertype), "const", "narrowed_declaration")
                   end
                end
 
@@ -9033,7 +9048,7 @@ tl.type_check = function(ast, opts)
 
                      if varnode.kind == "variable" and vartype.typename == "union" then
 
-                        add_var(varnode, varnode.tk, val, nil, "is")
+                        add_var(varnode, varnode.tk, val, nil, "narrow")
                      end
                   else
                      node_error(varnode, "variable is not being assigned a value")
@@ -9894,14 +9909,14 @@ tl.type_check = function(ast, opts)
                if not node.type then
                   node.type, meta_on_operator = check_metamethod(node, node.op.op, a)
                   if not node.type then
-                     return node_error(node, "cannot use operator '" .. node.op.op:gsub("%%", "%%%%") .. "' on type %s", resolve_tuple(orig_a))
+                     node_error(node, "cannot use operator '" .. node.op.op:gsub("%%", "%%%%") .. "' on type %s", resolve_tuple(orig_a))
                   end
                end
                if a.typename == "map" then
                   if a.keys.typename == "number" or a.keys.typename == "integer" then
                      node_warning("hint", node, "using the '#' operator on a map with numeric key type may produce unexpected results")
                   else
-                     return node_error(node, "using the '#' operator on this map will always return 0")
+                     node_error(node, "using the '#' operator on this map will always return 0")
                   end
                end
 
@@ -9940,7 +9955,7 @@ tl.type_check = function(ast, opts)
                if not node.type then
                   node.type, meta_on_operator = check_metamethod(node, node.op.op, a, b)
                   if not node.type then
-                     return node_error(node, "cannot use operator '" .. node.op.op:gsub("%%", "%%%%") .. "' for types %s and %s", resolve_tuple(orig_a), resolve_tuple(orig_b))
+                     node_error(node, "cannot use operator '" .. node.op.op:gsub("%%", "%%%%") .. "' for types %s and %s", resolve_tuple(orig_a), resolve_tuple(orig_b))
                   end
                end
 
@@ -10271,7 +10286,7 @@ tl.type_check = function(ast, opts)
    recurse_node(ast, visit_node, visit_type)
 
    close_types(st[1])
-   check_for_unused_vars(st[1])
+   check_for_unused_vars(st[1], true)
 
    clear_redundant_errors(errors)
 
