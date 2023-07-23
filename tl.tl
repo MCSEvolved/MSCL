@@ -1,5 +1,5 @@
 
-local VERSION = "0.15.2+dev"
+local VERSION = "MCSL 0.15.3"
 
 local record tl
    enum LoadMode
@@ -4971,13 +4971,11 @@ local function get_stdlib_compat(lax: boolean): {string:boolean}
       }
    else
       return {
-         ["io"] = true,
          ["math"] = true,
          ["string"] = true,
          ["table"] = true,
          ["utf8"] = true,
          ["coroutine"] = true,
-         ["os"] = true,
          ["package"] = true,
          ["debug"] = true,
          ["load"] = true,
@@ -5064,23 +5062,6 @@ local function init_globals(lax: boolean): {string:Variable}, {string:Type}
    end
 
    local LOAD_FUNCTION = a_type { typename = "function", args = {}, rets = TUPLE { STRING } }
-
-   local OS_DATE_TABLE = a_type {
-      typename = "record",
-      fields = {
-         ["year"] = INTEGER,
-         ["month"] = INTEGER,
-         ["day"] = INTEGER,
-         ["hour"] = INTEGER,
-         ["min"] = INTEGER,
-         ["sec"] = INTEGER,
-         ["wday"] = INTEGER,
-         ["yday"] = INTEGER,
-         ["isdst"] = BOOLEAN,
-      }
-   }
-
-   local OS_DATE_TABLE_FORMAT = a_type { typename = "enum", enumset = { ["!*t"] = true, ["*t"] = true } }
 
    local DEBUG_GETINFO_TABLE = a_type {
       typename = "record",
@@ -5213,27 +5194,6 @@ local function init_globals(lax: boolean): {string:Variable}, {string:Type}
       },
       ["tostring"] = a_type { typename = "function", args = TUPLE { ANY }, rets = TUPLE { STRING } },
       ["type"] = a_type { typename = "function", args = TUPLE { ANY }, rets = TUPLE { STRING } },
-      ["FILE"] = a_type {
-         typename = "typetype",
-         def = a_type {
-            typename = "record",
-            is_userdata = true,
-            fields = {
-               ["close"] = a_type { typename = "function", args = TUPLE { NOMINAL_FILE }, rets = TUPLE { BOOLEAN, STRING} },
-               ["flush"] = a_type { typename = "function", args = TUPLE { NOMINAL_FILE }, rets = TUPLE {} },
-               ["lines"] = a_type { typename = "function", args = VARARG { NOMINAL_FILE, a_type { typename = "union", types = { STRING, NUMBER } } }, rets = TUPLE {
-                  a_type { typename = "function", args = TUPLE {}, rets = VARARG { STRING } },
-               } },
-               ["read"] = a_type { typename = "function", args = TUPLE { NOMINAL_FILE, UNION { STRING, NUMBER } }, rets = TUPLE { STRING, STRING } },
-               ["seek"] = a_type { typename = "function", args = TUPLE { NOMINAL_FILE, OPT(STRING), OPT(NUMBER) }, rets = TUPLE { INTEGER, STRING } },
-               ["setvbuf"] = a_type { typename = "function", args = TUPLE { NOMINAL_FILE, STRING, OPT(NUMBER) }, rets = TUPLE {} },
-               ["write"] = a_type { typename = "function", args = VARARG { NOMINAL_FILE, STRING }, rets = TUPLE { NOMINAL_FILE, STRING } },
-               -- TODO complete...
-            },
-            meta_fields = { ["__close"] = FUNCTION },
-            meta_field_order = { "__close" },
-         },
-      },
       ["metatable"] = a_type {
          typename = "typetype",
          def = a_grecord(1, function(a: Type): Type return {
@@ -5352,27 +5312,6 @@ local function init_globals(lax: boolean): {string:Variable}, {string:Type}
             },
          },
       },
-      ["io"] = a_type {
-         typename = "record",
-         fields = {
-            ["close"] = a_type { typename = "function", args = TUPLE { OPT(NOMINAL_FILE) }, rets = TUPLE { BOOLEAN, STRING } },
-            ["flush"] = a_type { typename = "function", args = TUPLE {}, rets = TUPLE {} },
-            ["input"] = a_type { typename = "function", args = TUPLE { OPT(UNION { STRING, NOMINAL_FILE }) }, rets = TUPLE { NOMINAL_FILE } },
-            ["lines"] = a_type { typename = "function", args = VARARG { OPT(STRING), a_type { typename = "union", types = { STRING, NUMBER } } }, rets = TUPLE {
-               a_type { typename = "function", args = TUPLE {}, rets = VARARG { STRING } },
-            } },
-            ["open"] = a_type { typename = "function", args = TUPLE { STRING, STRING }, rets = TUPLE { NOMINAL_FILE, STRING } },
-            ["output"] = a_type { typename = "function", args = TUPLE { OPT(UNION { STRING, NOMINAL_FILE }) }, rets = TUPLE { NOMINAL_FILE } },
-            ["popen"] = a_type { typename = "function", args = TUPLE { STRING, STRING }, rets = TUPLE { NOMINAL_FILE, STRING } },
-            ["read"] = a_type { typename = "function", args = TUPLE { UNION { STRING, NUMBER } }, rets = TUPLE { STRING, STRING } },
-            ["stderr"] = NOMINAL_FILE,
-            ["stdin"] = NOMINAL_FILE,
-            ["stdout"] = NOMINAL_FILE,
-            ["tmpfile"] = a_type { typename = "function", args = TUPLE {}, rets = TUPLE { NOMINAL_FILE } },
-            ["type"] = a_type { typename = "function", args = TUPLE { ANY }, rets = TUPLE { STRING } },
-            ["write"] = a_type { typename = "function", args = VARARG { STRING }, rets = TUPLE { NOMINAL_FILE, STRING } },
-         },
-      },
       ["math"] = a_type {
          typename = "record",
          fields = {
@@ -5445,29 +5384,6 @@ local function init_globals(lax: boolean): {string:Variable}, {string:Type}
             ["tointeger"] = a_type { typename = "function", args = TUPLE { ANY }, rets = TUPLE { INTEGER } },
             ["type"] = a_type { typename = "function", args = TUPLE { ANY }, rets = TUPLE { STRING } },
             ["ult"] = a_type { typename = "function", args = TUPLE { NUMBER, NUMBER }, rets = TUPLE { BOOLEAN } },
-         },
-      },
-      ["os"] = a_type {
-         typename = "record",
-         fields = {
-            ["clock"] = a_type { typename = "function", args = TUPLE {}, rets = TUPLE { NUMBER } },
-            ["date"] = a_type {
-               typename = "poly",
-               types = {
-                  a_type { typename = "function", args = TUPLE {}, rets = TUPLE { STRING } },
-                  a_type { typename = "function", args = TUPLE { OS_DATE_TABLE_FORMAT, NUMBER }, rets = TUPLE { OS_DATE_TABLE } },
-                  a_type { typename = "function", args = TUPLE { OPT(STRING), OPT(NUMBER) }, rets = TUPLE { STRING } },
-               }
-            },
-            ["difftime"] = a_type { typename = "function", args = TUPLE { NUMBER, NUMBER }, rets = TUPLE { NUMBER } },
-            ["execute"] = a_type { typename = "function", args = TUPLE { STRING }, rets = TUPLE { BOOLEAN, STRING, INTEGER } },
-            ["exit"] = a_type { typename = "function", args = TUPLE { UNION { NUMBER, BOOLEAN }, BOOLEAN }, rets = TUPLE {} },
-            ["getenv"] = a_type { typename = "function", args = TUPLE { STRING }, rets = TUPLE { STRING } },
-            ["remove"] = a_type { typename = "function", args = TUPLE { STRING }, rets = TUPLE { BOOLEAN, STRING } },
-            ["rename"] = a_type { typename = "function", args = TUPLE { STRING, STRING}, rets = TUPLE { BOOLEAN, STRING } },
-            ["setlocale"] = a_type { typename = "function", args = TUPLE { STRING, OPT(STRING) }, rets = TUPLE { STRING } },
-            ["time"] = a_type { typename = "function", args = TUPLE { OPT(OS_DATE_TABLE) }, rets = TUPLE { INTEGER } },
-            ["tmpname"] = a_type { typename = "function", args = TUPLE {}, rets = TUPLE { STRING } },
          },
       },
       ["package"] = a_type {
@@ -5581,7 +5497,6 @@ local function init_globals(lax: boolean): {string:Variable}, {string:Type}
          fill_field_order(t.def)
       end
    end
-   fill_field_order(OS_DATE_TABLE)
    fill_field_order(DEBUG_GETINFO_TABLE)
 
    NOMINAL_FILE.found = standard_library["FILE"]
@@ -5590,7 +5505,7 @@ local function init_globals(lax: boolean): {string:Variable}, {string:Type}
    end
 
    for name, typ in pairs(standard_library) do
-      globals[name] = { t = typ, needs_compat = stdlib_compat[name], attribute = "const" }
+      globals[name] = { t = typ, needs_compat = stdlib_compat[name] }
    end
 
    -- only global scope and vararg functions accept `...`:
